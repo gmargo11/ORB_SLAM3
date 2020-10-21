@@ -29,10 +29,12 @@
 #include <message_filters/sync_policies/approximate_time.h>
 
 #include<opencv2/core/core.hpp>
-
+#include "Converter.h"
 #include"../../../include/System.h"
-
+#include <lcm/lcm-cpp.hpp>
+#include "body_pose_type.hpp"
 using namespace std;
+
 
 class ImageGrabber
 {
@@ -40,8 +42,9 @@ public:
     ImageGrabber(ORB_SLAM3::System* pSLAM):mpSLAM(pSLAM){}
 
     void GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const sensor_msgs::ImageConstPtr& msgD);
-
+    void PublishPose(cv::Mat Tcw);
     ORB_SLAM3::System* mpSLAM;
+    lcm::LCM lcm;
 };
 
 int main(int argc, char **argv)
@@ -106,7 +109,29 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
         ROS_ERROR("cv_bridge exception: %s", e.what());
         return;
     }
-    mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
+    cv::Mat Tcw = mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
+    PublishPose(Tcw);
 }
 
+
+void ImageGrabber::PublishPose(cv::Mat Tcw)
+{
+    // geometry_msgs::PoseStamped poseMSG;
+    if (!Tcw.empty())
+    {
+        cv::Mat Rwc = Tcw.rowRange(0, 3).colRange(0, 3).t();
+        cv::Mat twc = -Rwc * Tcw.rowRange(0, 3).col(3);
+        vector<float> q = ORB_SLAM3::Converter::toQuaternion(Rwc);
+        body_pose_type lcm_bd_pose;
+        lcm_bd_pose.body_pos[0] = twc.at<float>(0);
+        lcm_bd_pose.body_pos[1] = twc.at<float>(1);
+        lcm_bd_pose.body_pos[2] = twc.at<float>(2);
+        // w, x, y, z
+        lcm_bd_pose.body_ori_quat[0] = q[3];
+        lcm_bd_pose.body_ori_quat[1] = q[0];
+        lcm_bd_pose.body_ori_quat[2] = q[1];
+        lcm_bd_pose.body_ori_quat[3] = q[2];
+        lcm.publish("slam_pose", &lcm_bd_pose);
+    }
+}
 

@@ -1,0 +1,5 @@
+struct body_pose_type
+{
+    float body_pos[3];
+    float body_ori_quat[4];
+}
